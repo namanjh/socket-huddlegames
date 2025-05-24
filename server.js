@@ -9,13 +9,14 @@ const app = express()
 const server = http.createServer(app)
 const io = new Server(server, {
   cors: {
-    origin: '*', // Update with your domain in prod (e.g., https://play.huddlegames.com)
-    methods: ['GET', 'POST']
-  }
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
 })
 
-// Structure to keep track of players by room
-const rooms = {}
+// In-memory structure
+const rooms = {}         // { roomCode: { [socket.id]: player } }
+const gameStates = {}    // { roomCode: { status, gameSlug, round, ... } }
 
 io.on('connection', (socket) => {
   console.log('🟢 New socket connected:', socket.id)
@@ -27,9 +28,25 @@ io.on('connection', (socket) => {
     if (!rooms[roomCode]) rooms[roomCode] = {}
     rooms[roomCode][socket.id] = player
 
-    // Broadcast updated list to the room
     io.to(roomCode).emit('players-update', Object.values(rooms[roomCode]))
     console.log(`👥 ${player.player_name} joined ${roomCode}`)
+  })
+
+  // 🆕 Handle starting the game
+  socket.on('start-game', ({ roomCode, gameSlug }) => {
+    gameStates[roomCode] = {
+      status: 'in-progress',
+      gameSlug,
+      round: 1,
+    }
+
+    io.to(roomCode).emit('game-started', {
+      message: 'Game has started!',
+      gameSlug,
+      round: 1,
+    })
+
+    console.log(`🚀 Game started in room ${roomCode}`)
   })
 
   // Handle disconnect
