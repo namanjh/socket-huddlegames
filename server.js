@@ -14,12 +14,16 @@ const io = new Server(server, {
   },
 });
 
-const rooms = {};         // { roomCode: { [socket.id]: player } }
-const gameStates = {};    // { roomCode: { status, gameSlug, round, ... } }
+// In-memory structure
+// rooms: { roomCode: { [socket.id]: { player_id, player_name, team, is_admin } } }
+const rooms = {};
+const gameStates = {}; // { roomCode: { status, gameSlug, round, ... } }
 
 io.on('connection', (socket) => {
   console.log('🟢 New socket connected:', socket.id);
 
+  // Player joins a room
+  // The 'player' object now comes from the frontend, already containing team and is_admin
   socket.on('join-room', ({ roomCode, player }) => {
     socket.join(roomCode);
 
@@ -36,11 +40,22 @@ io.on('connection', (socket) => {
 
     console.log(`👥 ${player.player_name} (${socket.id}) joined room ${roomCode} on Team ${player.team}`);
 
-    const currentPlayersInRoom = Object.values(rooms[roomCode]);
-    console.log('DEBUG: Emitting players-update with:', currentPlayersInRoom);
-
     // Emit players-update with the full player objects
-    io.to(roomCode).emit('players-update', currentPlayersInRoom);
+    io.to(roomCode).emit('players-update', Object.values(rooms[roomCode]));
+  });
+
+  // Handle teams being assigned (triggered by frontend after "Start Game")
+  socket.on('teams-assigned', ({ roomCode, players }) => {
+    console.log(`🔄 Teams assigned in room ${roomCode}. Broadcasting update.`);
+    // Update the in-memory players for this room with the new team assignments
+    // This ensures the server's state is consistent with the database
+    players.forEach(p => {
+      const existingPlayer = Object.values(rooms[roomCode]).find(ep => ep.player_id === p.player_id);
+      if (existingPlayer) {
+        existingPlayer.team = p.team;
+      }
+    });
+    io.to(roomCode).emit('players-update', Object.values(rooms[roomCode]));
   });
 
   // 🆕 Handle starting the game
@@ -69,12 +84,14 @@ io.on('connection', (socket) => {
         console.log(`🔴 ${player_name} left ${roomCode}`);
         delete rooms[roomCode][socket.id];
 
+        // If the room is empty, delete it
         if (Object.keys(rooms[roomCode]).length === 0) {
+          console.log(`🗑️ Room ${roomCode} is empty and has been deleted.`);
           delete rooms[roomCode];
           delete gameStates[roomCode]; // Also clear game state if room is empty
         } else {
-          const currentPlayersInRoom = Object.values(rooms[roomCode]);
-          io.to(roomCode).emit('players-update', currentPlayersInRoom);
+          // Broadcast updated players list if room still exists
+          io.to(roomCode).emit('players-update', Object.values(rooms[roomCode]));
         }
         break;
       }
