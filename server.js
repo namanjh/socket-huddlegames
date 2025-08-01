@@ -1,5 +1,9 @@
 // socket-huddlegames/server.js
 
+process.on('uncaughtException', (error) => {
+  console.error('🔴 Uncaught Exception:', error);
+});
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
